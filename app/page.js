@@ -23,7 +23,9 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [msg, setMsg] = useState({ type: "", text: "" });
+  const [preview, setPreview] = useState(null); // { url, name }
   const inputRef = useRef(null);
+  const previewTimer = useRef(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -52,12 +54,48 @@ export default function HomePage() {
     addFiles(e.dataTransfer.files);
   }
 
+  // Regenerate the preview whenever settings change (debounced) or the first file changes.
+  useEffect(() => {
+    if (!files.length) {
+      if (preview) {
+        URL.revokeObjectURL(preview.url);
+        setPreview(null);
+      }
+      return;
+    }
+    clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(async () => {
+      try {
+        const f = files[0];
+        const url = URL.createObjectURL(f);
+        const img = new Image();
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = () => rej(new Error("图片读取失败"));
+          img.src = url;
+        });
+        const { blob } = await watermarkImage(img, settings);
+        URL.revokeObjectURL(url);
+        const pv = URL.createObjectURL(blob);
+        setPreview((old) => {
+          if (old) URL.revokeObjectURL(old.url);
+          return { url: pv, name: f.name };
+        });
+      } catch (err) {
+        console.error("预览生成失败", err);
+      }
+    }, 350);
+    return () => clearTimeout(previewTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, settings]);
+
   async function processAll() {
     if (busy || !files.length) return;
     setBusy(true);
     setMsg({ type: "", text: "" });
     let ok = 0,
       fail = 0;
+    const errors = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       setProgress(`正在处理 ${i + 1} / ${files.length}：${f.name}`);
@@ -76,6 +114,7 @@ export default function HomePage() {
         ok++;
       } catch (err) {
         fail++;
+        errors.push(`${f.name}: ${err.message}`);
         console.error(err);
       }
     }
@@ -83,7 +122,10 @@ export default function HomePage() {
     setProgress("");
     setMsg(
       fail
-        ? { type: "err", text: `完成：成功 ${ok} 张，失败 ${fail} 张` }
+        ? {
+            type: "err",
+            text: `完成：成功 ${ok} 张，失败 ${fail} 张` + (errors.length ? ` · ${errors[0]}` : ""),
+          }
         : { type: "ok", text: `完成：${ok} 张图片已加水印并保存到云端图库` }
     );
     setFiles([]);
@@ -135,6 +177,25 @@ export default function HomePage() {
           <p style={{ fontSize: 12, color: "var(--mid)", marginTop: 10 }}>
             已选择 {files.length} 张
           </p>
+        )}
+
+        {preview && (
+          <div
+            className="card"
+            style={{ marginTop: 18, display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}
+          >
+            <div style={{ flex: "1 1 300px", minWidth: 260 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                实时预览（第 1 张）
+              </div>
+              <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+                <img src={preview.url} alt="水印预览" style={{ width: "100%", display: "block" }} />
+              </div>
+              <div style={{ fontSize: 11, color: "var(--mid)", marginTop: 6 }}>
+                调整上方参数会实时更新预览
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="card" style={{ marginTop: 22 }}>
