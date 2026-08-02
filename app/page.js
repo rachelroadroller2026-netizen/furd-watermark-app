@@ -41,6 +41,27 @@ export default function GalleryPage() {
     }
   }
 
+  // Download via the browser: fetch the public blob URL, turn it into a local
+  // Blob, then trigger a save. Works for public stores and avoids the
+  // cross-origin `download` attribute limitation.
+  async function downloadImage(it) {
+    try {
+      const res = await fetch(it.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = it.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
+    } catch (err) {
+      alert("下载失败：" + err.message);
+    }
+  }
+
   function fmtSize(bytes) {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
@@ -92,8 +113,11 @@ export default function GalleryPage() {
                         打开
                       </a>
                       <a
-                        href={`/api/download?path=${encodeURIComponent(it.id)}&name=${encodeURIComponent(it.filename)}`}
-                        download
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          downloadImage(it);
+                        }}
                       >
                         下载
                       </a>
